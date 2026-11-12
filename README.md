@@ -15,11 +15,11 @@ The SDK is an async client on [reqwest](https://crates.io/crates/reqwest) with r
 
 ## Install
 
-Install it from GitHub. Add it to `Cargo.toml`, with Tokio to run it and `futures-util` to read the paging stream:
+Install release 0.1.0 from GitHub. Add it to `Cargo.toml`, with Tokio to run it and `futures-util` to read the paging stream:
 
 ```toml
 [dependencies]
-oushodh = { git = "https://github.com/oushodh/oushodh-rust", branch = "main" }
+oushodh = { git = "https://github.com/oushodh/oushodh-rust", tag = "v0.1.0" }
 futures-util = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
