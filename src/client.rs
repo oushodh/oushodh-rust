@@ -1,15 +1,15 @@
-use std::hash::{BuildHasher, RandomState};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use futures_util::stream::{self, BoxStream, StreamExt, TryStreamExt};
 use reqwest::Url;
-use reqwest::header::{AUTHORIZATION, HeaderValue, RETRY_AFTER, USER_AGENT};
+use reqwest::header::HeaderValue;
 use serde::de::DeserializeOwned;
 
-use crate::error::{Error, ErrorCode, Result};
+use crate::error::{Error, Result};
+use crate::http::Transport;
+use crate::models::time;
 use crate::models::{Medicine, MedicineDetail, Meta, Page, SearchResult};
-use crate::time;
 
 /// The address of the hosted API.
 pub const DEFAULT_BASE_URL: &str = "https://api.oushodh.dev";
@@ -19,7 +19,6 @@ pub const API_KEY_ENV: &str = "OUSHODH_API_KEY";
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MAX_RETRIES: u32 = 2;
-const UA: &str = concat!("oushodh-rust/", env!("CARGO_PKG_VERSION"));
 
 /// The parameters of List medicines. Every one is optional.
 ///
@@ -58,11 +57,8 @@ pub struct Client {
 
 #[derive(Debug)]
 struct Inner {
-    http: reqwest::Client,
+    transport: Transport,
     base: Url,
-    key: HeaderValue,
-    timeout: Duration,
-    max_retries: u32,
 }
 
 /// Builds a [`Client`] with options. Start it with [`Client::builder`].
@@ -148,11 +144,13 @@ impl ClientBuilder {
 
         Ok(Client {
             inner: Arc::new(Inner {
-                http: self.http.unwrap_or_default(),
+                transport: Transport {
+                    http: self.http.unwrap_or_default(),
+                    key,
+                    timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
+                    max_retries: self.max_retries.unwrap_or(DEFAULT_MAX_RETRIES),
+                },
                 base,
-                key,
-                timeout: self.timeout.unwrap_or(DEFAULT_TIMEOUT),
-                max_retries: self.max_retries.unwrap_or(DEFAULT_MAX_RETRIES),
             }),
         })
     }
@@ -255,7 +253,9 @@ impl Client {
 
     /// The bytes of a JPEG picture. The request carries no key.
     pub async fn get_image(&self, file: &str) -> Result<Vec<u8>> {
-        self.send(self.url(&["v1", "images", file], &[]), false)
+        self.inner
+            .transport
+            .get(self.url(&["v1", "images", file], &[]), false)
             .await
     }
 
@@ -279,70 +279,8 @@ impl Client {
     }
 
     async fn get_json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        let body = self.send(url, true).await?;
+        let body = self.inner.transport.get(url, true).await?;
 
         Ok(serde_json::from_slice(&body)?)
     }
-
-    async fn send(&self, url: Url, auth: bool) -> Result<Vec<u8>> {
-        let mut attempt = 0;
-
-        loop {
-            let result = self.send_once(url.clone(), auth).await;
-            let wait = match &result {
-                Err(Error::RateLimited { error, retry_after })
-                    if error.code == Some(ErrorCode::RateLimited) =>
-                {
-                    Some(retry_after.map_or_else(|| backoff(attempt), Duration::from_secs))
-                }
-                Err(Error::Server(_) | Error::Network(_) | Error::Timeout(_)) => {
-                    Some(backoff(attempt))
-                }
-                _ => None,
-            };
-
-            match wait {
-                Some(wait) if attempt < self.inner.max_retries => {
-                    tokio::time::sleep(wait).await;
-                    attempt += 1;
-                }
-                _ => return result,
-            }
-        }
-    }
-
-    async fn send_once(&self, url: Url, auth: bool) -> Result<Vec<u8>> {
-        let mut request = self
-            .inner
-            .http
-            .get(url)
-            .header(USER_AGENT, UA)
-            .timeout(self.inner.timeout);
-
-        if auth {
-            request = request.header(AUTHORIZATION, self.inner.key.clone());
-        }
-
-        let response = request.send().await.map_err(Error::from_reqwest)?;
-        let status = response.status().as_u16();
-        let retry_after = response
-            .headers()
-            .get(RETRY_AFTER)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse().ok());
-        let body = response.bytes().await.map_err(Error::from_reqwest)?;
-
-        if !(200..300).contains(&status) {
-            return Err(Error::from_answer(status, &body, retry_after));
-        }
-
-        Ok(body.to_vec())
-    }
-}
-
-fn backoff(attempt: u32) -> Duration {
-    let ceiling = 500u64 << attempt.min(6);
-    let jitter = RandomState::new().hash_one(attempt) % (ceiling / 2);
-
-    Duration::from_millis(ceiling / 2 + jitter)
 }
