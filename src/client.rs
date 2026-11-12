@@ -1,6 +1,6 @@
 use std::hash::{BuildHasher, RandomState};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures_util::stream::{self, BoxStream, StreamExt, TryStreamExt};
 use reqwest::Url;
@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{Error, ErrorCode, Result};
 use crate::models::{Medicine, MedicineDetail, Meta, Page, SearchResult};
+use crate::time;
 
 /// The address of the hosted API.
 pub const DEFAULT_BASE_URL: &str = "https://api.oushodh.dev";
@@ -23,9 +24,11 @@ const UA: &str = concat!("oushodh-rust/", env!("CARGO_PKG_VERSION"));
 /// The parameters of List medicines. Every one is optional.
 ///
 /// ```
+/// use std::time::{Duration, SystemTime};
+///
 /// let params = oushodh::ListParams {
 ///     limit: Some(500),
-///     updated_since: Some("2026-11-08T09:30:00Z".into()),
+///     updated_since: Some(SystemTime::now() - Duration::from_secs(3600)),
 ///     ..Default::default()
 /// };
 /// # let _ = params;
@@ -36,9 +39,10 @@ pub struct ListParams {
     pub limit: Option<u32>,
     /// The `next` value from the page before. Leave it out for the first page.
     pub cursor: Option<String>,
-    /// Only medicines changed at or after this time, oldest change first. Written like
-    /// `2026-11-08T09:30:00Z`.
-    pub updated_since: Option<String>,
+    /// Only medicines changed at or after this time, oldest change first. It is sent in UTC to
+    /// the whole second, like `2026-11-08T09:30:00Z`. [`Medicine::last_updated_at`] reads a
+    /// medicine's time in this form.
+    pub updated_since: Option<SystemTime>,
     /// Only medicines whose brand, generic or manufacturer starts with these words, or whose ID
     /// matches.
     pub q: Option<String>,
@@ -179,10 +183,11 @@ impl Client {
     /// `updated_since`.
     pub async fn list_medicines(&self, params: &ListParams) -> Result<Page> {
         let limit = params.limit.map(|l| l.to_string());
+        let since = params.updated_since.map(time::format);
         let query = [
             ("limit", limit.as_deref()),
             ("cursor", params.cursor.as_deref()),
-            ("updated_since", params.updated_since.as_deref()),
+            ("updated_since", since.as_deref()),
             ("q", params.q.as_deref()),
         ];
 
@@ -286,7 +291,7 @@ impl Client {
             let result = self.send_once(url.clone(), auth).await;
             let wait = match &result {
                 Err(Error::RateLimited { error, retry_after })
-                    if error.code != ErrorCode::QuotaExceeded =>
+                    if error.code == Some(ErrorCode::RateLimited) =>
                 {
                     Some(retry_after.map_or_else(|| backoff(attempt), Duration::from_secs))
                 }

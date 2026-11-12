@@ -21,7 +21,7 @@ pub enum ErrorCode {
     QuotaExceeded,
     /// A fault on the server.
     Internal,
-    /// A code this version does not know, or an answer with no error body.
+    /// A code this version does not know.
     #[serde(other)]
     Unknown,
 }
@@ -32,15 +32,18 @@ pub enum ErrorCode {
 pub struct ApiError {
     /// The HTTP status.
     pub status: u16,
-    /// The error code. Match on it.
-    pub code: ErrorCode,
+    /// The error code. Match on it. `None` when the answer's body is not JSON.
+    pub code: Option<ErrorCode>,
     /// For people. Do not match on it; it may change.
     pub message: String,
 }
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {:?}: {}", self.status, self.code, self.message)
+        match self.code {
+            Some(code) => write!(f, "{} {code:?}: {}", self.status, self.message),
+            None => write!(f, "{}: {}", self.status, self.message),
+        }
     }
 }
 
@@ -114,9 +117,9 @@ impl Error {
         self.api_error().map(|e| e.status)
     }
 
-    /// The error code, when the API answered.
+    /// The error code, when the API answered with an error body.
     pub fn code(&self) -> Option<ErrorCode> {
-        self.api_error().map(|e| e.code)
+        self.api_error().and_then(|e| e.code)
     }
 
     /// Seconds to wait before trying again, from the `Retry-After` header of a `429`.
@@ -150,8 +153,8 @@ impl Error {
         }
 
         let (code, message) = match serde_json::from_slice::<Body>(body) {
-            Ok(b) => (b.error.code, b.error.message),
-            Err(_) => (ErrorCode::Unknown, format!("HTTP {status}")),
+            Ok(b) => (Some(b.error.code), b.error.message),
+            Err(_) => (None, format!("HTTP {status}")),
         };
         let error = ApiError {
             status,

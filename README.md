@@ -136,11 +136,13 @@ Medicines are never deleted and IDs are never reused, so a copy only ever adds a
    the medicines changed at or after that time, oldest change first.
 
 ```rust,no_run
+use std::time::SystemTime;
+
 use futures_util::TryStreamExt;
 use oushodh::ListParams;
 
-# async fn run(client: oushodh::Client, saved: Option<String>) -> oushodh::Result<()> {
-let mut newest = saved.clone();
+# async fn run(client: oushodh::Client, saved: Option<SystemTime>) -> oushodh::Result<()> {
+let mut newest = saved;
 let mut changed = client.medicines(ListParams {
     limit: Some(500),
     updated_since: saved,
@@ -149,23 +151,25 @@ let mut changed = client.medicines(ListParams {
 
 while let Some(medicine) = changed.try_next().await? {
     // Insert or update by medicine.uuid here.
-    if newest.as_deref() < Some(medicine.last_updated.as_str()) {
-        newest = Some(medicine.last_updated.clone());
-    }
+    newest = newest.max(medicine.last_updated_at());
 }
 // Save `newest` for the next sync.
 # Ok(())
 # }
 ```
 
-The time is written like `2026-11-08T09:30:00Z`. "At or after" means a change in the same second is
-never missed: the medicine that set the time comes back once more.
+`updated_since` is a `SystemTime`. The client sends it in UTC to the whole second, like
+`2026-11-08T09:30:00Z`. `last_updated_at()` reads a medicine's `last_updated` as a `SystemTime`.
+
+"At or after" means a change in the same second is never missed: the medicine that set the time
+comes back once more.
 
 ## Errors
 
 Every call returns `oushodh::Result<T>`. An error answer from the API carries its HTTP status, a
 `code` and a `message`. Match on the variant or on `code()`, never on the message: it is for people
-and may change.
+and may change. When the body of an error answer is not JSON, `code` is `None` and the message is
+`HTTP <status>`.
 
 | Variant                       | Status | Codes                             |
 | ----------------------------- | ------ | --------------------------------- |
@@ -199,9 +203,8 @@ No error, and no `Debug` output of the client, ever holds the key.
 
 ## Rate limits
 
-Each key may make a set number of requests a minute: 60 on the Developer plan, more on larger plans.
-Over it, the API answers `429 rate_limited`, and the `Retry-After` header says how many seconds to
-wait.
+Your plan sets how many requests each key may make in a minute (60 a minute on Developer). Over
+it, the API answers `429 rate_limited`, and the `Retry-After` header says how many seconds to wait.
 
 The client waits those seconds and tries again, up to `max_retries` times. After a `5xx`, a timeout
 or a network error it tries again after an exponential backoff with jitter. It never tries a
@@ -209,7 +212,8 @@ or a network error it tries again after an exponential backoff with jitter. It n
 
 Your plan also sets the requests a month. When they are used up, the API answers
 `429 quota_exceeded` until the next month, and `Retry-After` counts the seconds to it. The client
-does not wait for that; read `retry_after()` on the error.
+never waits for that and never tries it again. It returns `Error::RateLimited` at once, with
+`retry_after()` set to those seconds.
 
 ## Plan limits
 

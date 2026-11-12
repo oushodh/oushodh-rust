@@ -13,4 +13,5 @@ All notable changes to this crate are written here. The crate follows
 - Typed models for every object in the OpenAPI spec. Fields this version does not know are kept in
   `extra`.
 - One `Error` enum with a variant per error family. `429 rate_limited`, `5xx` and network errors are
-  tried again.
+  tried again. `429 quota_exceeded` returns at once with `retry_after`.
+- `updated_since` takes a `SystemTime` and is sent as `YYYY-MM-DDTHH:MM:SSZ`.

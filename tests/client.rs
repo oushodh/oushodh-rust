@@ -1,5 +1,5 @@
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::TryStreamExt;
 use oushodh::{Client, Error, ErrorCode, ListParams, MedicineType};
@@ -51,6 +51,10 @@ fn medicine(n: u32) -> Value {
         "dgda_listed": true,
         "medicine_type": "allopathic"
     })
+}
+
+fn nov_8() -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(1_794_130_200)
 }
 
 fn error_body(code: &str) -> Value {
@@ -112,7 +116,7 @@ async fn list_medicines_sends_every_parameter() {
     let params = ListParams {
         limit: Some(2),
         cursor: Some("abc".into()),
-        updated_since: Some("2026-11-08T09:30:00Z".into()),
+        updated_since: Some(UNIX_EPOCH + Duration::from_millis(1_794_130_200_750)),
         q: Some("napa 500".into()),
     };
     let page = client(&server).list_medicines(&params).await.unwrap();
@@ -127,6 +131,10 @@ async fn list_medicines_sends_every_parameter() {
     );
     assert_eq!(page.items[0].prices.packs[0].units, None);
     assert_eq!(page.items[0].extra["new_field"], "kept");
+    assert_eq!(
+        page.items[0].last_updated_at(),
+        Some(UNIX_EPOCH + Duration::from_secs(1_794_238_054))
+    );
 }
 
 #[tokio::test]
@@ -180,7 +188,7 @@ async fn medicines_pages_to_the_end_and_keeps_the_filters() {
         .await;
 
     let params = ListParams {
-        updated_since: Some(since.into()),
+        updated_since: Some(nov_8()),
         ..Default::default()
     };
     let all: Vec<_> = client(&server)
@@ -397,10 +405,10 @@ async fn error_codes_are_read_from_the_body() {
         client.get_medicine("MED-999999").await.unwrap_err().code(),
         Some(ErrorCode::PlanLimit)
     );
-    assert_eq!(
-        client.meta().await.unwrap_err().code(),
-        Some(ErrorCode::Unknown)
-    );
+    let error = client.meta().await.unwrap_err();
+
+    assert_eq!(error.code(), None);
+    assert_eq!(error.api_error().unwrap().message, "HTTP 502");
 }
 
 #[tokio::test]

@@ -69,6 +69,14 @@ pub struct Medicine {
     pub extra: Extra,
 }
 
+impl Medicine {
+    /// `last_updated` as a time, to pass back as `updated_since`. `None` if the API ever sends it in
+    /// another form.
+    pub fn last_updated_at(&self) -> Option<std::time::SystemTime> {
+        crate::time::parse(&self.last_updated)
+    }
+}
+
 /// The DGDA register that lists a medicine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -38,8 +38,8 @@
 //! # Retries
 //!
 //! A `429 rate_limited` waits the seconds in `Retry-After`, then tries again. A `5xx`, a timeout or
-//! a network error tries again after an exponential backoff with jitter. Other errors, and
-//! `429 quota_exceeded`, are never tried again. The default is 2 retries; see
+//! a network error tries again after an exponential backoff with jitter. Other errors are never
+//! tried again. A `429 quota_exceeded` returns at once, with [`Error::retry_after`] set. The default is 2 retries; see
 //! [`ClientBuilder::max_retries`].
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -48,6 +48,7 @@
 mod client;
 mod error;
 pub mod models;
+mod time;
 
 pub use client::{API_KEY_ENV, Client, ClientBuilder, DEFAULT_BASE_URL, ListParams};
 pub use error::{ApiError, Error, ErrorCode, Result};
