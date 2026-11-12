@@ -4,6 +4,8 @@ The official Rust client for the Oushodh API.
 
 [![CI](https://github.com/oushodh/oushodh-rust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/oushodh/oushodh-rust/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/github/license/oushodh/oushodh-rust)](LICENSE)
+[![crates.io](https://img.shields.io/crates/v/oushodh)](https://crates.io/crates/oushodh)
+[![docs.rs](https://img.shields.io/docsrs/oushodh)](https://docs.rs/oushodh)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-ce422b)](https://www.rust-lang.org/)
 
 ## What Oushodh is
@@ -15,16 +17,14 @@ The SDK is an async client on [reqwest](https://crates.io/crates/reqwest) with r
 
 ## Install
 
-Install release 0.1.0 from GitHub. Add it to `Cargo.toml`, with Tokio to run it and `futures-util` to read the paging stream:
+Install it from crates.io. Add it to `Cargo.toml`, with Tokio to run it and `futures-util` to read the paging stream:
 
 ```toml
 [dependencies]
-oushodh = { git = "https://github.com/oushodh/oushodh-rust", tag = "v0.1.0" }
+oushodh = "0.1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
-
-Install from crates.io is coming soon.
 
 ## Quickstart
 
