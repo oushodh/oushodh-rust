@@ -47,8 +47,8 @@
 
 mod client;
 mod error;
+mod http;
 pub mod models;
-mod time;
 
 pub use client::{API_KEY_ENV, Client, ClientBuilder, DEFAULT_BASE_URL, ListParams};
 pub use error::{ApiError, Error, ErrorCode, Result};
