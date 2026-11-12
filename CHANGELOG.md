@@ -3,7 +3,7 @@
 All notable changes to this crate are written here. The crate follows
 [Semantic Versioning](https://semver.org/).
 
-## 0.1.0 (unreleased)
+## 0.1.0 (12 Nov, 2026)
 
 - First version of the Rust SDK for the Oushodh API `/v1`.
 - `Client` with an API key, or `OUSHODH_API_KEY`, and options for the base URL, timeout, retries
