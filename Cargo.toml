@@ -1,0 +1,31 @@
+[package]
+name = "oushodh"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Rust SDK for the Oushodh medicine data API"
+license = "MIT"
+authors = ["Oushodh <support@oushodh.dev>"]
+repository = "https://github.com/oushodh/oushodh-rust"
+homepage = "https://oushodh.dev/docs"
+documentation = "https://docs.rs/oushodh"
+readme = "README.md"
+keywords = ["oushodh", "medicine", "bangladesh", "api", "sdk"]
+categories = ["api-bindings", "web-programming::http-client"]
+include = ["src/**/*", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "system-proxy"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6.5"
