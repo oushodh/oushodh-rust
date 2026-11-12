@@ -1,113 +1,111 @@
-# oushodh
+# Oushodh Rust SDK
 
-The Rust SDK for the Oushodh API: medicine data for Bangladesh, checked against the DGDA register.
+The official Rust client for the Oushodh API.
 
-It is an async client on [reqwest](https://crates.io/crates/reqwest) with rustls. Every call is an
-HTTPS `GET` that answers JSON. The full API reference is at <https://oushodh.dev/docs>.
+[![CI](https://github.com/oushodh/oushodh-rust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/oushodh/oushodh-rust/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/github/license/oushodh/oushodh-rust)](LICENSE)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-ce422b)](https://www.rust-lang.org/)
+
+## What Oushodh is
+
+Oushodh serves Bangladesh medicine data over a REST API: brands, generics, prices and makers. Make a key in the member
+portal at [app.oushodh.dev](https://app.oushodh.dev), and read the docs at [oushodh.dev/docs](https://oushodh.dev/docs).
+
+The SDK is an async client on [reqwest](https://crates.io/crates/reqwest) with rustls. It needs Rust 1.85 or newer.
 
 ## Install
 
-Install it from GitHub for now:
+Install it from GitHub. Add it to `Cargo.toml`, with Tokio to run it and `futures-util` to read the paging stream:
 
 ```toml
 [dependencies]
-oushodh = { git = "https://github.com/oushodh/oushodh-rust", tag = "v0.1.0" }
+oushodh = { git = "https://github.com/oushodh/oushodh-rust", branch = "main" }
 futures-util = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-Until the `v0.1.0` tag exists, use `branch = "main"` in place of `tag`.
-
-Coming soon: `cargo add oushodh` from crates.io.
-
-The SDK needs Rust 1.85 or newer.
-
-## Get a key
-
-1. Sign up at [app.oushodh.dev](https://app.oushodh.dev) and choose a plan.
-2. On the Keys page, make a key. It starts with `oush_` and is shown only once.
-3. Keep it on your server, never in a web page or a mobile app.
-
-The client reads the key from the `OUSHODH_API_KEY` environment variable, or you pass it in.
+Install from crates.io is coming soon.
 
 ## Quickstart
+
+Make a key on the Keys page of the member portal. A key starts with `oush_` and is shown once. Keep it on your
+server: never put it in a web page or a mobile app.
+
+```sh
+export OUSHODH_API_KEY=oush_...
+```
 
 ```rust,no_run
 use oushodh::Client;
 
 #[tokio::main]
 async fn main() -> oushodh::Result<()> {
-    let client = Client::from_env()?;
+    let client = Client::from_env()?; // reads OUSHODH_API_KEY
 
-    let meta = client.meta().await?;
-    println!("{} reads {} medicines", meta.client, meta.medicines);
+    let result = client.search("paracetamol", Some(5)).await?;
 
-    let napa = client.get_medicine("MED-012933").await?;
-    println!("{} ({})", napa.product_name, napa.uuid);
-
-    let hits = client.search("napa", Some(5)).await?;
-    for medicine in &hits.items {
+    for medicine in &result.items {
         println!("{} {}", medicine.id, medicine.product_name);
     }
+
+    let medicine = client.get_medicine("MED-012933").await?;
+    let unit = medicine.prices.unit.as_ref().map(|u| u.amount);
+
+    println!("{}: {unit:?} BDT a unit", medicine.product_name);
 
     Ok(())
 }
 ```
 
-`Client::new("oush_…")` takes the key directly. `Client::builder()` sets options:
+`Client::new("oush_...")` takes the key directly. With no key and no `OUSHODH_API_KEY`, both return
+`Error::MissingKey`.
 
-```rust,no_run
-use std::time::Duration;
+| Method                    | Route                          | Returns                                   |
+| ------------------------- | ------------------------------ | ----------------------------------------- |
+| `meta()`                  | `GET /v1/meta`                 | `Result<Meta>`                            |
+| `list_medicines(&params)` | `GET /v1/medicines`            | `Result<Page>`                            |
+| `medicines(params)`       | `GET /v1/medicines`, each page | a stream of `Result<Medicine>`            |
+| `search(q, limit)`        | `GET /v1/medicines/search`     | `Result<SearchResult>`                    |
+| `get_medicine(ref)`       | `GET /v1/medicines/{ref}`      | `Result<MedicineDetail>`                  |
+| `image_url(file)`         | none                           | the picture's address                     |
+| `get_image(file)`         | `GET /v1/images/{file}`        | `Result<Vec<u8>>`, the bytes              |
 
-let client = oushodh::Client::builder()
-    .api_key("oush_…")
-    .timeout(Duration::from_secs(10))
-    .max_retries(3)
-    .build()?;
-# Ok::<(), oushodh::Error>(())
-```
+`meta()` names your account and counts the medicines your plan reads. Call it to check that a key works.
 
-| Option        | Default                   |
-| ------------- | ------------------------- |
-| `base_url`    | `https://api.oushodh.dev` |
-| `timeout`     | 30 seconds a request      |
-| `max_retries` | 2                         |
-| `http_client` | a new `reqwest::Client`   |
+`get_medicine()` takes an ID in any profile, an old ID or a UUID. The answer always carries the medicine's current
+ID, and its `monograph`.
 
-The client is cheap to clone. Clones share one connection pool.
-
-## Medicines
-
-`get_medicine` takes a medicine's ID in any profile, an old ID, or its UUID. The answer always
-carries the medicine's current ID in your profile, and its `monograph`: the medical text, or `None`.
-
-A value no source gives is `None`, never a blank, a zero or an estimate. Store `uuid` as the key that
-never changes, and show `id` to people.
-
-Read prices from `prices`. It holds every MRP the sources state: per unit, per strip and per pack.
-The older `price`, `price_per` and `unit_prices` fields are kept for older clients.
-
-`/v1` only gains fields. Fields this version of the SDK does not know are kept in each object's
-`extra` map.
+Fields keep their API names, such as `product_name`. A value no source gives is `None`. `/v1` only gains fields, and
+fields this version does not know are kept in each object's `extra` map.
 
 ## Paging
 
-`list_medicines` answers one page. Pass its `next` back as `cursor` for the next page; `next` is
-`None` on the last page.
+`list_medicines()` returns one page: `items`, `next` and `total`. Pass `next` back as `cursor` for the next page.
+`next` is `None` on the last page. `limit` is 1 to 500, and 100 when you leave it out.
 
 ```rust,no_run
 use oushodh::ListParams;
 
 # async fn run(client: oushodh::Client) -> oushodh::Result<()> {
-let page = client
-    .list_medicines(&ListParams { limit: Some(500), ..Default::default() })
-    .await?;
-println!("{} of {}", page.items.len(), page.total);
+let mut params = ListParams { limit: Some(500), ..Default::default() };
+
+loop {
+    let page = client.list_medicines(&params).await?;
+
+    for medicine in &page.items {
+        println!("{} {}", medicine.id, medicine.product_name);
+    }
+
+    match page.next {
+        Some(next) => params.cursor = Some(next),
+        None => break,
+    }
+}
 # Ok(())
 # }
 ```
 
-`medicines` is a stream that follows `next` to the last page, one request a page:
+`medicines()` does the same for you. It is a stream that yields every medicine and follows `next` to the end:
 
 ```rust,no_run
 use futures_util::TryStreamExt;
@@ -117,23 +115,21 @@ use oushodh::ListParams;
 let mut all = client.medicines(ListParams { limit: Some(500), ..Default::default() });
 
 while let Some(medicine) = all.try_next().await? {
-    println!("{} {}", medicine.uuid, medicine.product_name);
+    println!("{} {}", medicine.id, medicine.product_name);
 }
 # Ok(())
 # }
 ```
 
-`q` keeps only medicines whose brand, generic or manufacturer starts with the words, or whose ID
-matches. `search` gives the best matches for a person typing, best match first, up to 50, with no
-cursor.
+Search has no cursor. To page through every match, use `medicines()` with `q`.
 
-## Sync
+## Keeping a copy in sync
 
-Medicines are never deleted and IDs are never reused, so a copy only ever adds and updates.
+Copy every medicine once, then fetch only what changed.
 
 1. The first sync pages through every medicine and keeps the newest `last_updated`.
-2. Each later sync passes that time as `updated_since` and pages to the end. The answer holds only
-   the medicines changed at or after that time, oldest change first.
+2. Each later sync passes that time as `updated_since` and pages to the end. It gets the medicines changed at or after
+   that time, oldest change first.
 
 ```rust,no_run
 use std::time::SystemTime;
@@ -142,7 +138,7 @@ use futures_util::TryStreamExt;
 use oushodh::ListParams;
 
 # async fn run(client: oushodh::Client, saved: Option<SystemTime>) -> oushodh::Result<()> {
-let mut newest = saved;
+let mut newest = saved; // None on the first sync
 let mut changed = client.medicines(ListParams {
     limit: Some(500),
     updated_since: saved,
@@ -158,32 +154,65 @@ while let Some(medicine) = changed.try_next().await? {
 # }
 ```
 
-`updated_since` is a `SystemTime`. The client sends it in UTC to the whole second, like
-`2026-11-08T09:30:00Z`. `last_updated_at()` reads a medicine's `last_updated` as a `SystemTime`.
+- `updated_since` is a `SystemTime`. The client sends it in UTC, to the whole second, such as `2026-11-08T09:30:00Z`.
+  `last_updated_at()` reads a medicine's `last_updated` as a `SystemTime`.
+- "At or after" means a change in the same second is never missed. The medicine that set the time comes back once
+  more, so save by `uuid`.
+- Store `uuid` as the key: it never changes. Show `id` to people.
+- Medicines are never deleted and IDs are never reused, so a sync never has to remove one.
 
-"At or after" means a change in the same second is never missed: the medicine that set the time
-comes back once more.
+## Images
+
+`product_image` is the address of the medicine's picture, or `None`. `images` lists every picture, `product_image`
+first. An address under `/v1/images/` is a copy Oushodh keeps. It needs no key, so an `<img>` tag can show it, and it
+never changes. Any other address belongs to the source, and it can move or be removed.
+
+`get_image()` takes the file name, not the whole address, and sends no key:
+
+```rust,no_run
+# async fn run(client: oushodh::Client, medicine: oushodh::MedicineDetail) -> oushodh::Result<()> {
+if let Some(url) = &medicine.product_image {
+    if let Some(file) = url.strip_prefix(&client.image_url("")) {
+        let jpeg: Vec<u8> = client.get_image(file).await?;
+        # let _ = jpeg;
+    }
+}
+# Ok(())
+# }
+```
+
+`image_url(file)` builds the address of a file:
+
+```rust
+let client = oushodh::Client::new("oush_test_123")?;
+let file = "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c.jpg";
+
+assert_eq!(client.image_url(file), format!("https://api.oushodh.dev/v1/images/{file}"));
+# assert_eq!(client.image_url(""), "https://api.oushodh.dev/v1/images/");
+# Ok::<(), oushodh::Error>(())
+```
 
 ## Errors
 
-Every call returns `oushodh::Result<T>`. An error answer from the API carries its HTTP status, a
-`code` and a `message`. Match on the variant or on `code()`, never on the message: it is for people
-and may change. When the body of an error answer is not JSON, `code` is `None` and the message is
-`HTTP <status>`.
+Every call returns `oushodh::Result<T>`. An error answer from the API carries its HTTP status, a `code` and a
+`message`. Match on the variant or on `code()`, never on the message: the message is for people and may change.
 
-| Variant                       | Status | Codes                             |
-| ----------------------------- | ------ | --------------------------------- |
-| `Error::BadRequest`           | 400    | `bad_request`                     |
-| `Error::Unauthorized`         | 401    | `unauthorized`                    |
-| `Error::Forbidden`            | 403    | `plan_expired`, `plan_limit`      |
-| `Error::NotFound`             | 404    | `not_found`                       |
-| `Error::RateLimited`          | 429    | `rate_limited`, `quota_exceeded`  |
-| `Error::Server`               | 5xx    | `internal`                        |
-| `Error::Api`                  | other  | any                               |
-| `Error::Timeout`              | none   | the request took too long         |
-| `Error::Network`              | none   | the request could not be sent     |
-| `Error::Decode`               | none   | the answer was not the JSON asked |
-| `Error::MissingKey`           | none   | no key and no `OUSHODH_API_KEY`   |
+| Variant               | Status | `code()`                           |
+| --------------------- | ------ | ---------------------------------- |
+| `Error::BadRequest`   | 400    | `BadRequest`                       |
+| `Error::Unauthorized` | 401    | `Unauthorized`                     |
+| `Error::Forbidden`    | 403    | `PlanExpired` or `PlanLimit`       |
+| `Error::NotFound`     | 404    | `NotFound`                         |
+| `Error::RateLimited`  | 429    | `RateLimited` or `QuotaExceeded`   |
+| `Error::Server`       | 5xx    | `Internal`                         |
+| `Error::Api`          | other  | any                                |
+| `Error::Timeout`      | none   | none: the request took too long    |
+| `Error::Network`      | none   | none: the request could not be sent |
+| `Error::Decode`       | none   | none: the answer was not the JSON expected |
+
+Building a client can also fail with `Error::MissingKey`, `Error::InvalidKey` or `Error::InvalidBaseUrl`. When an
+error body is not JSON, `code()` is `None` and the message is `HTTP <status>`. No error, and no `Debug` output of the
+client, ever holds the key.
 
 ```rust,no_run
 use oushodh::{Error, ErrorCode};
@@ -191,60 +220,76 @@ use oushodh::{Error, ErrorCode};
 # async fn run(client: oushodh::Client) -> oushodh::Result<()> {
 match client.get_medicine("MED-999999").await {
     Ok(medicine) => println!("{}", medicine.product_name),
-    Err(Error::NotFound(_)) => println!("no such medicine"),
-    Err(e) if e.code() == Some(ErrorCode::PlanLimit) => println!("upgrade to read it"),
+    Err(Error::NotFound(_)) => println!("No medicine has that ID."),
+    Err(e) if e.code() == Some(ErrorCode::PlanLimit) => println!("The medicine is beyond your plan."),
     Err(e) => return Err(e),
 }
 # Ok(())
 # }
 ```
 
-No error, and no `Debug` output of the client, ever holds the key.
+## Retries and rate limits
 
-## Rate limits
+Your plan sets how many requests each key may make in a minute (60 a minute on Developer). It also sets how many
+requests your account may make in a month. See [Rate limits](https://oushodh.dev/docs/rate-limits).
 
-Your plan sets how many requests each key may make in a minute (60 a minute on Developer). Over
-it, the API answers `429 rate_limited`, and the `Retry-After` header says how many seconds to wait.
+- Over the minute's limit, the API answers `429 rate_limited`. The `Retry-After` header says how many seconds to wait.
+  The client waits that long and tries again, up to `max_retries` times. After that it returns
+  `Error::RateLimited`, with the seconds in `retry_after()`.
+- When the month's requests are used up, the API answers `429 quota_exceeded` until the next month. The client never
+  retries it. It returns `Error::RateLimited` at once, and `retry_after()` counts the seconds to the next month.
+- After a `5xx`, a network error or a timeout, the client backs off and tries again, up to `max_retries` times. Each
+  wait is about twice the last, with a random part.
+- The client never retries a `400`, `401`, `403` or `404`: the same request gets the same answer.
 
-The client waits those seconds and tries again, up to `max_retries` times. After a `5xx`, a timeout
-or a network error it tries again after an exponential backoff with jitter. It never tries a
-`400`, `401`, `403` or `404` again: the same request gets the same answer.
-
-Your plan also sets the requests a month. When they are used up, the API answers
-`429 quota_exceeded` until the next month, and `Retry-After` counts the seconds to it. The client
-never waits for that and never tries it again. It returns `Error::RateLimited` at once, with
-`retry_after()` set to those seconds.
+Every route is a `GET`, so a retry is always safe.
 
 ## Plan limits
 
-Some plans read only the first medicines, in the order of their permanent number. Lists and search
-leave out the medicines beyond your plan's number, and `meta().medicines` counts the ones you read.
-A lookup by ID of a medicine beyond it answers `403 plan_limit`. A `403 plan_expired` means the
-account has no active plan.
+Developer reads the first 5,000 medicines and Team the first 20,000, in the order of their permanent number. Agency
+and Custom read all of them.
 
-## Images
+Lists and search leave out the medicines beyond your plan's number. A lookup by ID of such a medicine answers
+`403 plan_limit`: the client returns `Error::Forbidden` with `code()` `Some(ErrorCode::PlanLimit)`. An account with no
+active plan gets `403 plan_expired` on every call.
 
-`product_image` is the address of a medicine's picture, and `images` lists every picture. Pictures
-under `/v1/images` need no key, so a web page can show them directly.
+## Configuration
+
+`Client::builder()` sets options:
 
 ```rust,no_run
-# async fn run(client: oushodh::Client) -> oushodh::Result<()> {
-let file = "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c.jpg";
-let url = client.image_url(file);
-let jpeg: Vec<u8> = client.get_image(file).await?;
-# let _ = (url, jpeg);
-# Ok(())
-# }
+use std::time::Duration;
+
+let client = oushodh::Client::builder()
+    .api_key("oush_...")
+    .timeout(Duration::from_secs(10))
+    .max_retries(3)
+    .build()?;
+# Ok::<(), oushodh::Error>(())
 ```
 
-`get_image` sends no key. The file never changes, so it can be cached for a year.
+| Option        | Default                   | What it does                                                         |
+| ------------- | ------------------------- | -------------------------------------------------------------------- |
+| `api_key`     | `OUSHODH_API_KEY`         | Your API key.                                                        |
+| `base_url`    | `https://api.oushodh.dev` | Where the API is.                                                    |
+| `timeout`     | 30 seconds                | How long one request may take.                                       |
+| `max_retries` | `2`                       | Retries after a `429 rate_limited`, a `5xx`, a timeout or a network error. |
+| `http_client` | a new `reqwest::Client`   | Your own `reqwest::Client`.                                          |
 
-## Docs
+The client is cheap to clone. Clones share one connection pool. In your own tests, point `base_url` at a local mock
+server.
 
-- API reference: <https://oushodh.dev/docs>
-- OpenAPI spec: <https://oushodh.dev/docs/openapi.json>
-- Crate docs: `cargo doc --open`
+## Development
 
-## License
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
 
-MIT. Copyright Oushodh.
+`cargo test` also compiles every code sample in this README. The tests use a local mock server. They never call the
+API.
+
+## Licence
+
+MIT. Copyright Oushodh. See [LICENSE](LICENSE).
